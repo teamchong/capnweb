@@ -14,6 +14,7 @@ import {
   type TransformContext,
   type TransformContextOptions,
 } from "./transform/context.js";
+import { createTsgoTransformContext } from "./transform/tsgo-context.js";
 import { transformModule } from "./transform/transform-module.js";
 
 export type CapnwebValidatePluginOptions = TransformContextOptions;
@@ -57,7 +58,11 @@ export const capnwebValidate = createUnplugin<
       let cleanId = stripIdSuffix(id);
       if (!fileMatchesTransformFilters(cleanId, options)) return null;
 
-      if (!context) context = createTransformContext(options);
+      if (!context)
+        context =
+          options.backend === "tsgo"
+            ? createTsgoTransformContext(options)
+            : createTransformContext(options);
       let result = transformModule(context, cleanId, code);
       if (!result) return null;
       return { code: result.code };

@@ -15,6 +15,7 @@ import {
   createTransformContext,
   TransformContextOptions,
 } from "./context.js";
+import { createTsgoTransformContext } from "./tsgo-context.js";
 import { transformModule } from "./transform-module.js";
 
 export type BuildOptions = TransformContextOptions & {
@@ -169,10 +170,14 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
   // so deleted/renamed files from a previous run cannot stay in the source set.
   await rm(out, { recursive: true, force: true });
 
-  let context = createTransformContext({
+  let contextOptions = {
     ...options,
     tsconfig: options.tsconfig ?? "tsconfig.json",
-  });
+  };
+  let context =
+    options.backend === "tsgo"
+      ? createTsgoTransformContext(contextOptions)
+      : createTransformContext(contextOptions);
   let transformed = 0;
   let copied = 0;
   let skippedOutside: string[] = [];

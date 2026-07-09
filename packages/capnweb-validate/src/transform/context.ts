@@ -20,6 +20,8 @@ export type TransformContextOptions = {
   cwd?: string;
   /** How a failed server-side check is handled: "throw" (default) raises a TypeError; "warn" logs and lets the value through. */
   serverValidation?: ValidationMode;
+  /** Which type-introspection backend to use: "classic" (default, the `typescript` package) or "tsgo" (the native port). */
+  backend?: "classic" | "tsgo";
 };
 
 function normalizePath(path: string): string {
@@ -106,6 +108,13 @@ export function fileMatchesTransformFilters(
 
 export interface TransformContext {
   readonly options: TransformContextOptions;
+  /**
+   * Runtime `typeof ts` surface the per-module transform reads. The classic
+   * backend supplies the real `typescript` namespace; the tsgo backend supplies
+   * a structurally-equivalent adapter. Letting the transform read this instead
+   * of importing `typescript` directly is what makes it backend-agnostic.
+   */
+  readonly tsm: typeof ts;
   /** Absolute paths of every `.ts`/`.tsx` file the build should consider. */
   listSourceFiles(): Iterable<string>;
   /** The shared TypeScript checker. Lazily built on first call. */
@@ -183,6 +192,7 @@ export function createTransformContext(
 
   return {
     options: publicOptions,
+    tsm: ts,
 
     listSourceFiles(): Iterable<string> {
       let prog = ensureProgram();

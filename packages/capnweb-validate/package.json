@@ -82,7 +82,8 @@
     "@typescript/vfs": "^1.6.4",
     "capnweb": "^0.8.0",
     "tsdown": "^0.22.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript7": "npm:typescript@~7.1.0-dev"
   },
   "publishConfig": {
     "access": "public"

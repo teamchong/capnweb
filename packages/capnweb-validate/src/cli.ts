@@ -23,6 +23,7 @@ Options:
   --tsconfig <path>           Path to tsconfig.json. Defaults to ./tsconfig.json.
   --cwd <dir>                 Working directory. Defaults to process.cwd().
   --server-validation <mode>  How server-side checks behave: throw | warn. Default throw.
+  --backend <name>            Type-introspection backend: classic | tsgo. Default classic.
   -h, --help                  Show this message.`);
   process.exit(exitCode);
 }
@@ -32,6 +33,7 @@ type BuildArgs = {
   tsconfig?: string;
   cwd?: string;
   serverValidation?: ValidationMode;
+  backend?: "classic" | "tsgo";
 };
 
 function parseMode(arg: string, value: string | undefined): ValidationMode {
@@ -54,6 +56,14 @@ function parseBuildArgs(args: string[]): BuildArgs {
       parsed[arg.slice(2) as "out" | "tsconfig" | "cwd"] = value;
     } else if (arg === "--server-validation") {
       parsed.serverValidation = parseMode(arg, args[++i]);
+    } else if (arg === "--backend") {
+      let value = args[++i];
+      if (value !== "classic" && value !== "tsgo") {
+        throw new Error(
+          `--backend must be one of classic, tsgo (got ${value}).`,
+        );
+      }
+      parsed.backend = value;
     } else if (arg.startsWith("--")) {
       throw new Error(`Unknown option: ${arg}`);
     } else {
@@ -81,6 +91,7 @@ async function main(): Promise<void> {
     tsconfig: opts.tsconfig,
     cwd: opts.cwd,
     serverValidation: opts.serverValidation,
+    backend: opts.backend,
   });
   console.log(
       `capnweb-validate: ${result.transformed} transformed, ` +

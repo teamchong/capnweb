@@ -119,11 +119,18 @@ export const MARKERS: Record<
   },
 };
 
+// The active `typeof ts` surface for this build. transformModule sets it from
+// the context on entry so every helper below runs on the selected backend
+// (classic or tsgo). Safe as module-level state: the transform is fully
+// synchronous and a single build uses exactly one backend.
+let backendTs: typeof ts = ts;
+
 export function transformModule(
   context: TransformContext,
   id: string,
   code: string
 ): TransformResult | null {
+  backendTs = context.tsm;
   if (!code.includes(PACKAGE_NAME)) {
     return null;
   }
@@ -239,16 +246,16 @@ function collectMarkerBindings(sf: ts.SourceFile): MarkerImports {
   let bindings = new Map<string, MarkerBinding>();
   let namespaces = new Set<string>();
   for (let stmt of sf.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
+    if (!backendTs.isImportDeclaration(stmt)) continue;
     let mod = stmt.moduleSpecifier;
-    if (!ts.isStringLiteral(mod)) continue;
+    if (!backendTs.isStringLiteral(mod)) continue;
     if (mod.text !== CAPNWEB_MARKER_PACKAGE_NAME && mod.text !== PACKAGE_NAME)
       continue;
     let named = stmt.importClause?.namedBindings;
     if (!named) continue;
-    if (ts.isNamespaceImport(named)) {
+    if (backendTs.isNamespaceImport(named)) {
       namespaces.add(named.name.text);
-    } else if (ts.isNamedImports(named)) {
+    } else if (backendTs.isNamedImports(named)) {
       for (let spec of named.elements) {
         let imported = (spec.propertyName ?? spec.name).text;
         if (!(imported in MARKERS)) continue;
@@ -265,13 +272,13 @@ function collectMarkerBindings(sf: ts.SourceFile): MarkerImports {
 function collectDecoratorBindings(sf: ts.SourceFile): Set<string> {
   let result = new Set<string>();
   for (let stmt of sf.statements) {
-    if (!ts.isImportDeclaration(stmt)) continue;
+    if (!backendTs.isImportDeclaration(stmt)) continue;
     let mod = stmt.moduleSpecifier;
-    if (!ts.isStringLiteral(mod)) continue;
+    if (!backendTs.isStringLiteral(mod)) continue;
     if (mod.text !== PACKAGE_NAME && mod.text !== CAPNWEB_MARKER_PACKAGE_NAME)
       continue;
     let clause = stmt.importClause;
-    if (!clause?.namedBindings || !ts.isNamedImports(clause.namedBindings))
+    if (!clause?.namedBindings || !backendTs.isNamedImports(clause.namedBindings))
       continue;
     for (let spec of clause.namedBindings.elements) {
       let imported = (spec.propertyName ?? spec.name).text;
@@ -302,8 +309,8 @@ function isCallLike(
   node: ts.Node
 ): node is ts.CallExpression | ts.NewExpression {
   return (
-    ts.isCallExpression(node) ||
-    (ts.isNewExpression(node) && node.arguments !== undefined)
+    backendTs.isCallExpression(node) ||
+    (backendTs.isNewExpression(node) && node.arguments !== undefined)
   );
 }
 
@@ -325,7 +332,7 @@ function collectMarkerCallSites(
       if (resolved)
         pushCallSite(out, sf, node, resolved.marker, resolved.localName, checker);
     }
-    ts.forEachChild(node, visit);
+    backendTs.forEachChild(node, visit);
   }
   visit(sf);
   return out;
@@ -338,7 +345,7 @@ function resolveMarkerCallee(
   namespaces: Set<string>,
   checker: ts.TypeChecker
 ): { marker: (typeof MARKERS)[keyof typeof MARKERS]; localName: string } | null {
-  if (ts.isIdentifier(callee)) {
+  if (backendTs.isIdentifier(callee)) {
     let binding = bindings.get(callee.text);
     // Confirm the name resolves to the imported marker, not a local that shadows it.
     if (!binding || !resolvesToMarker(checker, callee, binding.markerName)) {
@@ -347,8 +354,8 @@ function resolveMarkerCallee(
     return { marker: MARKERS[binding.markerName], localName: binding.localName };
   }
   if (
-    ts.isPropertyAccessExpression(callee) &&
-    ts.isIdentifier(callee.expression) &&
+    backendTs.isPropertyAccessExpression(callee) &&
+    backendTs.isIdentifier(callee.expression) &&
     namespaces.has(callee.expression.text) &&
     callee.name.text in MARKERS
   ) {
@@ -370,7 +377,7 @@ function resolvesToMarker(
   markerName: string
 ): boolean {
   let sym = checker.getSymbolAtLocation(node);
-  if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
+  if (sym && sym.flags & backendTs.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
   return sym?.getName() === markerName && isCapnwebValidateSymbol(sym);
 }
 
@@ -383,7 +390,7 @@ function pushCallSite(
   checker: ts.TypeChecker
 ): void {
   let expected = marker.form;
-  let actual: "call" | "new" = ts.isNewExpression(call) ? "new" : "call";
+  let actual: "call" | "new" = backendTs.isNewExpression(call) ? "new" : "call";
   if (expected !== actual) return;
   let shape = resolveCallSiteShape(call, marker, checker);
   if (shape === null) {
@@ -408,8 +415,8 @@ function collectDecoratorSites(
   if (decoratorBindings.size === 0 && namespaces.size === 0) return out;
 
   function visit(node: ts.Node): void {
-    if (ts.isClassDeclaration(node)) {
-      for (let decorator of ts.getDecorators(node) ?? []) {
+    if (backendTs.isClassDeclaration(node)) {
+      for (let decorator of backendTs.getDecorators(node) ?? []) {
         if (
           !isValidateRpcDecorator(
             decorator,
@@ -424,7 +431,7 @@ function collectDecoratorSites(
         out.push({ decorator, cls: node, shape });
       }
     }
-    ts.forEachChild(node, visit);
+    backendTs.forEachChild(node, visit);
   }
   visit(sf);
   return out;
@@ -437,8 +444,8 @@ function isValidateRpcDecorator(
   checker: ts.TypeChecker
 ): boolean {
   let expression = decorator.expression;
-  if (ts.isCallExpression(expression)) expression = expression.expression;
-  if (ts.isIdentifier(expression)) {
+  if (backendTs.isCallExpression(expression)) expression = expression.expression;
+  if (backendTs.isIdentifier(expression)) {
     return (
       bindings.has(expression.text) &&
       resolvesToMarker(checker, expression, "validateRpc")
@@ -446,8 +453,8 @@ function isValidateRpcDecorator(
   }
   // `@ns.validateRpc()` from `import * as ns from "capnweb-validate"`.
   return (
-    ts.isPropertyAccessExpression(expression) &&
-    ts.isIdentifier(expression.expression) &&
+    backendTs.isPropertyAccessExpression(expression) &&
+    backendTs.isIdentifier(expression.expression) &&
     namespaces.has(expression.expression.text) &&
     expression.name.text === "validateRpc" &&
     resolvesToMarker(checker, expression.name, "validateRpc")
@@ -485,7 +492,7 @@ function resolveDecoratorShape(
     used: false,
   };
   let resolved = resolveServiceShape(
-    ts,
+    backendTs,
     checker,
     classType,
     generic,
@@ -518,7 +525,7 @@ function getDecoratorTypeArgumentNode(
   decorator: ts.Decorator
 ): ts.TypeNode | null {
   let expression = decorator.expression;
-  if (!ts.isCallExpression(expression)) return null;
+  if (!backendTs.isCallExpression(expression)) return null;
   return expression.typeArguments?.[0] ?? null;
 }
 
@@ -526,11 +533,11 @@ function typeNodeContainsAny(node: ts.TypeNode): boolean {
   let found = false;
   function visit(current: ts.Node): void {
     if (found) return;
-    if (current.kind === ts.SyntaxKind.AnyKeyword) {
+    if (current.kind === backendTs.SyntaxKind.AnyKeyword) {
       found = true;
       return;
     }
-    ts.forEachChild(current, visit);
+    backendTs.forEachChild(current, visit);
   }
   visit(node);
   return found;
@@ -569,7 +576,7 @@ function getSingleImplementedType(
 ): ts.Type | null {
   let impls: ts.ExpressionWithTypeArguments[] = [];
   for (let clause of cls.heritageClauses ?? []) {
-    if (clause.token === ts.SyntaxKind.ImplementsKeyword)
+    if (clause.token === backendTs.SyntaxKind.ImplementsKeyword)
       impls.push(...clause.types);
   }
   // A single implemented interface can provide more precise signatures for
@@ -644,15 +651,15 @@ function collectClassSkipRpcValidationMethods(
 ): Map<string, ts.Decorator> {
   let skipped = new Map<string, ts.Decorator>();
   for (let member of cls.members) {
-    if (!ts.isMethodDeclaration(member)) continue;
+    if (!backendTs.isMethodDeclaration(member)) continue;
     let name = methodName(member.name);
     if (!name) continue;
-    for (let decorator of ts.getDecorators(member) ?? []) {
+    for (let decorator of backendTs.getDecorators(member) ?? []) {
       let expression = decorator.expression;
-      if (ts.isCallExpression(expression)) expression = expression.expression;
-      if (!ts.isIdentifier(expression)) continue;
+      if (backendTs.isCallExpression(expression)) expression = expression.expression;
+      if (!backendTs.isIdentifier(expression)) continue;
       let sym = checker.getSymbolAtLocation(expression);
-      if (sym && sym.flags & ts.SymbolFlags.Alias) {
+      if (sym && sym.flags & backendTs.SymbolFlags.Alias) {
         sym = checker.getAliasedSymbol(sym);
       }
       if (
@@ -667,8 +674,8 @@ function collectClassSkipRpcValidationMethods(
 }
 
 function methodName(name: ts.PropertyName): string | null {
-  if (ts.isIdentifier(name)) return name.text;
-  if (ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text;
+  if (backendTs.isIdentifier(name)) return name.text;
+  if (backendTs.isStringLiteral(name) || backendTs.isNumericLiteral(name)) return name.text;
   return null;
 }
 
@@ -754,7 +761,8 @@ function resolveCallSiteShape(
     type = checker.getTypeAtLocation(arg);
   }
   if (isTooGeneric(type)) return null;
-  let shape = resolveServiceShape(ts, checker, type);
+  let shape = resolveServiceShape(
+    backendTs, checker, type);
   return shape && applyPlatformPassthrough(checker, type, shape);
 }
 
@@ -799,10 +807,10 @@ function unwrapRpcStub(checker: ts.TypeChecker, type: ts.Type): ts.Type {
 
 function isTooGeneric(type: ts.Type): boolean {
   let flags = type.getFlags();
-  if (flags & ts.TypeFlags.TypeParameter) return true;
-  if (flags & ts.TypeFlags.Any) return true;
-  if (flags & ts.TypeFlags.Unknown) return true;
-  if (flags & ts.TypeFlags.Never) return true;
+  if (flags & backendTs.TypeFlags.TypeParameter) return true;
+  if (flags & backendTs.TypeFlags.Any) return true;
+  if (flags & backendTs.TypeFlags.Unknown) return true;
+  if (flags & backendTs.TypeFlags.Never) return true;
   let name = type.getSymbol()?.getName();
   if (name === "RpcTarget" || name === "WorkerEntrypoint") return true;
   return false;

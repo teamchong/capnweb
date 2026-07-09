@@ -4,6 +4,9 @@ import {
   createFSBackedSystem,
   createVirtualCompilerHost,
 } from "@typescript/vfs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import ts from "typescript";
 import * as cw from "../src/internal/core.js";
 import type {
@@ -15,7 +18,11 @@ import type {
   TransformContext,
   TransformContextOptions,
 } from "../src/transform/context.js";
-import { transformModule } from "../src/transform/transform-module.js";
+import { createTsgoTransformContext } from "../src/transform/tsgo-context.js";
+import {
+  transformModule,
+  type TransformResult,
+} from "../src/transform/transform-module.js";
 
 /** Base capnweb shim: RpcTarget plus the server marker. */
 export const SHIM = `declare module "capnweb" {
@@ -47,6 +54,9 @@ export type FixtureOptions = {
   imports?: string;
   /** When set, append a handler returning newWorkersRpcResponse(req, <target>). */
   target?: string;
+  /** Introspection backend. "classic" (default) runs in-memory; "tsgo" runs the
+   * real native compiler over a temp on-disk project. */
+  backend?: "classic" | "tsgo";
 };
 
 export type FixtureResult = { code: string; warns: string[] };
@@ -109,6 +119,7 @@ function createVirtualContext(
 
   return {
     options: contextOptions,
+    tsm: ts,
     listSourceFiles() {
       return program
         .getSourceFiles()
@@ -153,9 +164,58 @@ export function createVirtualTransformContext(
   });
 }
 
+// tsgo reads from a real filesystem, so -- unlike the virtual path -- the fixture
+// has to be written to a temp project on disk. The layout mirrors
+// createVirtualTransformContext so the same fixtures behave identically on both
+// backends.
+function transformWithTsgo(
+  code: string,
+  opts: FixtureOptions
+): TransformResult | null {
+  const dir = mkdtempSync(join(tmpdir(), "capnweb-validate-tsgo-"));
+  try {
+    const extra = opts.files ?? {};
+    writeFileSync(
+      join(dir, "tsconfig.json"),
+      JSON.stringify({
+        compilerOptions: {
+          strict: true,
+          target: "ES2022",
+          module: "ESNext",
+          moduleResolution: "bundler",
+          skipLibCheck: true,
+          types: [],
+          ...(opts.compilerOptions as Record<string, unknown> | undefined),
+          lib: opts.lib ?? ["ES2022", "DOM"],
+        },
+        files: ["worker.ts", "capnweb.d.ts", ...Object.keys(extra)],
+      })
+    );
+    writeFileSync(join(dir, "worker.ts"), code);
+    writeFileSync(join(dir, "capnweb.d.ts"), opts.shim ?? SHIM);
+    for (const [path, source] of Object.entries(extra)) {
+      const full = join(dir, path);
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, source);
+    }
+    const ctx = createTsgoTransformContext({
+      cwd: dir,
+      tsconfig: "tsconfig.json",
+    });
+    try {
+      return transformModule(ctx, join(dir, "worker.ts"), code);
+    } finally {
+      ctx.dispose();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
 /**
  * Transform `body` in a virtual project, capturing console.warn. Returns the
  * generated `code` and `warns`. Throws if the transform reports a build error.
+ * Pass `backend: "tsgo"` to run the real native compiler over a temp project.
  */
 export function transformFixture(
   body: string,
@@ -172,21 +232,26 @@ export function transformFixture(
       ? `\nexport function handler(req: Request): Promise<Response> { return newWorkersRpcResponse(req, ${opts.target}); }`
       : "";
     const code = imports + body + tail;
-    const ctx = createVirtualTransformContext({
-      shim: opts.shim,
-      lib: opts.lib,
-      compilerOptions: opts.compilerOptions,
-      files: opts.files,
-      rootFiles: opts.rootFiles,
-      worker: code,
-    });
-    try {
-      const r = transformModule(ctx, WORKER_PATH, code);
-      if (!r) throw new Error("transformModule returned null");
-      return { code: r.code, warns };
-    } finally {
-      ctx.dispose();
+    let r: TransformResult | null;
+    if (opts.backend === "tsgo") {
+      r = transformWithTsgo(code, opts);
+    } else {
+      const ctx = createVirtualTransformContext({
+        shim: opts.shim,
+        lib: opts.lib,
+        compilerOptions: opts.compilerOptions,
+        files: opts.files,
+        rootFiles: opts.rootFiles,
+        worker: code,
+      });
+      try {
+        r = transformModule(ctx, WORKER_PATH, code);
+      } finally {
+        ctx.dispose();
+      }
     }
+    if (!r) throw new Error("transformModule returned null");
+    return { code: r.code, warns };
   } finally {
     console.warn = origWarn;
   }
