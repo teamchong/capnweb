@@ -130,6 +130,12 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
       intrinsicName: t.intrinsicName,
       getFlags: () => t.flags,
       getSymbol: () => wrapSymbol(t.getSymbol()),
+      get aliasSymbol() {
+        return wrapSymbol(t.getAliasSymbol?.());
+      },
+      get aliasTypeArguments() {
+        return (t.getAliasTypeArguments?.() ?? []).map(wrapType);
+      },
       getCallSignatures: () =>
         checkerRaw.getSignaturesOfType(t, SignatureKind.Call).map(wrapSignature),
       isUnionOrIntersection: () =>

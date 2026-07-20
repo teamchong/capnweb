@@ -76,6 +76,18 @@ describe("tsgo backend: emitted validators match the classic backend", () => {
     let classic = transformFixture(API, { target: "new Api()" }).code;
     expect(tsgo).toBe(classic);
   });
+
+  it("preserves alias metadata exposed by the tsgo API", () => {
+    let code = transformFixture(
+      `class Api extends RpcTarget {
+        flags(): Promise<Record<"admin" | "active", boolean>> {
+          throw new Error();
+        }
+      }`,
+      { target: "new Api()", backend: "tsgo" },
+    ).code;
+    expect(code).toContain('}, "Record")');
+  });
 });
 
 // The real Worker/Durable-Object shape: a @validateRpc class extends a
