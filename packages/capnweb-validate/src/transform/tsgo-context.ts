@@ -41,7 +41,7 @@ let isNodeList = (v: any): boolean =>
     typeof (v as any).forEachNode === "function" ||
     Array.isArray((v as any).nodes));
 
-// RemoteNodeList -> plain array (index it; `.map` throws on it, microsoft/typescript-go#4339).
+// Normalize node lists to plain arrays before wrapping their elements.
 function listToArray(list: any): any[] {
   let out: any[] = [];
   for (let i = 0; i < list.length; i++) out.push(list[i]);

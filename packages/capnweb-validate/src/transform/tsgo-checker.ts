@@ -135,18 +135,7 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
       isUnionOrIntersection: () =>
         (t.flags & (TypeFlags.Union | TypeFlags.Intersection)) !== 0,
       isUnion: () => (t.flags & TypeFlags.Union) !== 0,
-      getBaseTypes: () => {
-        // Classic exposes getBaseTypes only on class/interface types; tsgo's can
-        // also throw on others (microsoft/typescript-go#4335), so guard and
-        // swallow to mirror the classic `getBaseTypes?.() ?? []` on everything
-        // that isn't an object type.
-        if (t.objectFlags === undefined) return [];
-        try {
-          return checkerRaw.getBaseTypes(t).map(wrapType);
-        } catch {
-          return [];
-        }
-      },
+      getBaseTypes: () => (t.getBaseTypes?.() ?? []).map(wrapType),
       getTypes: () => (t.getTypes?.() ?? []).map(wrapType),
       // Union/intersection members are read as a `.types` property too.
       get types() {
@@ -279,15 +268,8 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
     typeToString: (t: any) => checkerRaw.typeToString(unwrapType(t)),
     getSymbolAtLocation: (node: any) =>
       wrapSymbol(checkerRaw.getSymbolAtLocation(unwrapNode(node))),
-    getAliasedSymbol: (s: any) => {
-      // tsgo exposes no getAliasedSymbol. An import alias's *type* carries the
-      // resolved declaration, so the type's symbol is the import target -- which
-      // is what callers (resolvesToMarker) need to identify the marker export.
-      let rawSym = unwrapSym(s);
-      if (!rawSym) return wrapSymbol(undefined);
-      let target = checkerRaw.getTypeOfSymbol(rawSym)?.getSymbol?.();
-      return wrapSymbol(target ?? rawSym);
-    },
+    getAliasedSymbol: (s: any) =>
+      wrapSymbol(checkerRaw.getAliasedSymbol(unwrapSym(s))),
     isArrayType: (t: any) => checkerRaw.isArrayLikeType(unwrapType(t)),
     isTupleType: (t: any) =>
       (unwrapType(t).objectFlags & ObjectFlags.Tuple) !== 0,
@@ -341,8 +323,8 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
     forEachChild: (node: any, cb: (child: any) => void) =>
       unwrapNode(node)?.forEachChild((child: any) => cb(child)),
     getDecorators: (node: any) => {
-      // tsgo exposes decorators inside the modifier list (RemoteNodeList -- index
-      // it; #4339 makes .map throw). Returns raw decorator nodes.
+      // tsgo exposes decorators inside the modifier list. Return raw decorator
+      // nodes.
       let mods = unwrapNode(node)?.modifiers;
       if (!mods) return undefined;
       let out: any[] = [];
