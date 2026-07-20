@@ -138,6 +138,15 @@ function createVirtualContext(
     getSourceFile(id) {
       return program.getSourceFile(id);
     },
+    getNodeStart(node, sourceFile) {
+      return node.getStart(sourceFile);
+    },
+    getNodeEnd(node) {
+      return node.getEnd();
+    },
+    getLineAndCharacter(sourceFile, position) {
+      return sourceFile.getLineAndCharacterOfPosition(position);
+    },
     invalidateFile() {},
     dispose() {},
   };

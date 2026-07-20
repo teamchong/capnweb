@@ -124,6 +124,7 @@ export const MARKERS: Record<
 // (classic or tsgo). Safe as module-level state: the transform is fully
 // synchronous and a single build uses exactly one backend.
 let backendTs: typeof ts = ts;
+let backendContext: TransformContext;
 
 export function transformModule(
   context: TransformContext,
@@ -131,6 +132,7 @@ export function transformModule(
   code: string
 ): TransformResult | null {
   backendTs = context.tsm;
+  backendContext = context;
   if (!code.includes(PACKAGE_NAME)) {
     return null;
   }
@@ -194,21 +196,21 @@ export function transformModule(
       : RUNTIME_NAMESPACE;
     let headStart =
       cs.marker.form === "new"
-        ? cs.call.getStart(sourceFile)
-        : callee.getStart(sourceFile);
+        ? backendContext.getNodeStart(cs.call, sourceFile)
+        : backendContext.getNodeStart(callee, sourceFile);
     edits.push({
       start: headStart,
-      end: callee.getEnd(),
+      end: backendContext.getNodeEnd(callee),
       text: `${runtimeNamespace}.${cs.marker.helper}`,
     });
     let args = cs.call.arguments;
     if (args && args.length > 0) {
       // Insert after the last arg, not before `)`, so a trailing comma does
       // not produce `f(a, b,, __v)`.
-      let pos = args[args.length - 1]!.getEnd();
+      let pos = backendContext.getNodeEnd(args[args.length - 1]!);
       edits.push({ start: pos, end: pos, text: `, ${cs.bindingName!}` });
     } else {
-      let closeParenPos = cs.call.getEnd() - 1;
+      let closeParenPos = backendContext.getNodeEnd(cs.call) - 1;
       edits.push({
         start: closeParenPos,
         end: closeParenPos,
@@ -219,8 +221,8 @@ export function transformModule(
 
   for (let site of decoratorSites) {
     edits.push({
-      start: site.decorator.expression.getStart(sourceFile),
-      end: site.decorator.expression.getEnd(),
+      start: backendContext.getNodeStart(site.decorator.expression, sourceFile),
+      end: backendContext.getNodeEnd(site.decorator.expression),
       text: `${RUNTIME_NAMESPACE}.__validateRpcClass(${site.bindingName!})`,
     });
   }
@@ -548,8 +550,9 @@ function warnGenericDefaultedToAny(
   cls: ts.ClassDeclaration,
   decorator: ts.Decorator
 ): void {
-  let { line, character } = sf.getLineAndCharacterOfPosition(
-    decorator.getStart(sf)
+  let { line, character } = backendContext.getLineAndCharacter(
+    sf,
+    backendContext.getNodeStart(decorator, sf)
   );
   let name = cls.name?.text ?? "class";
   console.warn(
@@ -561,7 +564,10 @@ function warnGenericDefaultedToAny(
   );
 }
 function warnDecoratorAny(sf: ts.SourceFile, node: ts.TypeNode): void {
-  let { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+  let { line, character } = backendContext.getLineAndCharacter(
+    sf,
+    backendContext.getNodeStart(node, sf)
+  );
   console.warn(
     `${sf.fileName}:${line + 1}:${character + 1}: capnweb-validate: ` +
       `@validateRpc type argument contains \`any\`; generic content at ` +
@@ -938,6 +944,9 @@ function sortedEntries(properties: Record<string, TypeShape>): unknown[] {
 }
 
 function buildError(sf: ts.SourceFile, node: ts.Node, message: string): Error {
-  let { line, character } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
+  let { line, character } = backendContext.getLineAndCharacter(
+    sf,
+    backendContext.getNodeStart(node, sf)
+  );
   return new Error(`${sf.fileName}:${line + 1}:${character + 1}: ${message}`);
 }

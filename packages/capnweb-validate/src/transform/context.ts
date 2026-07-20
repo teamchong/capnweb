@@ -123,6 +123,13 @@ export interface TransformContext {
   getProgram(): ts.Program;
   /** Resolve a `ts.SourceFile` for the given absolute path, or undefined. */
   getSourceFile(id: string): ts.SourceFile | undefined;
+  /** Source position helpers shared by classic and tsgo nodes. */
+  getNodeStart(node: ts.Node, sourceFile: ts.SourceFile): number;
+  getNodeEnd(node: ts.Node): number;
+  getLineAndCharacter(
+    sourceFile: ts.SourceFile,
+    position: number
+  ): { line: number; character: number };
   /** Drop the cached source file for `id` so the next access re-parses it. */
   invalidateFile(id: string): void;
   /** Release any retained resources. Called on `buildEnd`. */
@@ -219,6 +226,18 @@ export function createTransformContext(
 
     getSourceFile(id: string): ts.SourceFile | undefined {
       return ensureProgram().getSourceFile(id);
+    },
+
+    getNodeStart(node: ts.Node, sourceFile: ts.SourceFile): number {
+      return node.getStart(sourceFile);
+    },
+
+    getNodeEnd(node: ts.Node): number {
+      return node.getEnd();
+    },
+
+    getLineAndCharacter(sourceFile: ts.SourceFile, position: number) {
+      return sourceFile.getLineAndCharacterOfPosition(position);
     },
 
     invalidateFile(_id: string): void {
