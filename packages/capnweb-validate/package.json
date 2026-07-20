@@ -72,6 +72,7 @@
   "scripts": {
     "build": "tsdown",
     "build:watch": "tsdown --watch",
+    "bench:backends": "npm run build && node benchmarks/backend-cli.mjs",
     "test": "vitest run --root ../.. --project node packages/capnweb-validate/__tests__"
   },
   "peerDependencies": {
