@@ -62,8 +62,6 @@ export interface TsgoCompiler {
   checker: any;
   // The opened tsgo project (program + checker).
   project: Project;
-  // Strip the adapter wrapper from a node, returning the raw tsgo node.
-  unwrapNode(node: any): any;
   // Resolve the named top-level type in `fileName` to a wrapped service type.
   getType(fileName: string, typeName: string): any;
   dispose(): void;
@@ -355,5 +353,5 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
     return wrapType(checkerRaw.getTypeAtLocation(decl));
   }
 
-  return { tsm, checker, getType, project, unwrapNode, dispose: () => api.close() };
+  return { tsm, checker, getType, project, dispose: () => api.close() };
 }
