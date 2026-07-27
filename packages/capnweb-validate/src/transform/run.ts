@@ -15,7 +15,6 @@ import {
   createTransformContext,
   TransformContextOptions,
 } from "./context.js";
-import { createTsgoTransformContext } from "./tsgo-context.js";
 import { transformModule } from "./transform-module.js";
 
 export type BuildOptions = TransformContextOptions & {
@@ -174,9 +173,13 @@ export async function runBuild(options: BuildOptions): Promise<BuildResult> {
     ...options,
     tsconfig: options.tsconfig ?? "tsconfig.json",
   };
+  // tsgo lives behind an optional devDependency on an unstable nightly. Import
+  // it only when selected so the classic backend does not need it installed.
   let context =
     options.backend === "tsgo"
-      ? createTsgoTransformContext(contextOptions)
+      ? (await import("./tsgo-context.js")).createTsgoTransformContext(
+          contextOptions,
+        )
       : createTransformContext(contextOptions);
   let transformed = 0;
   let copied = 0;

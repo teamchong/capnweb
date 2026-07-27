@@ -121,6 +121,7 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
     if (!t) return t;
     let cached = typeCache.get(t.id);
     if (cached) return cached;
+    let memberTypes = () => (t.getTypes?.() ?? []).map(wrapType);
     let w: any = {
       [RAW]: t,
       id: t.id,
@@ -142,10 +143,10 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
         (t.flags & (TypeFlags.Union | TypeFlags.Intersection)) !== 0,
       isUnion: () => (t.flags & TypeFlags.Union) !== 0,
       getBaseTypes: () => (t.getBaseTypes?.() ?? []).map(wrapType),
-      getTypes: () => (t.getTypes?.() ?? []).map(wrapType),
+      getTypes: memberTypes,
       // Union/intersection members are read as a `.types` property too.
       get types() {
-        return (t.getTypes?.() ?? []).map(wrapType);
+        return memberTypes();
       },
     };
     typeCache.set(t.id, w);
@@ -223,6 +224,14 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
   let unwrapType = (t: any) => (t && t[RAW]) ?? t;
   let unwrapSym = (s: any) => (s && s[RAW]) ?? s;
   let unwrapNode = (n: any) => (n && n[RAW]) ?? n;
+  // Signature parameters resolve through getParameterType: their symbols have no
+  // usable handle on recent tsgo builds, so getTypeOfSymbol would throw.
+  let paramType = (s: any) => {
+    let param = s && s[PARAM];
+    return param
+      ? wrapType(checkerRaw.getParameterType(param.sig, param.index))
+      : undefined;
+  };
 
   // ---- checker adapter -------------------------------------------------------
   let checker: any = {
@@ -242,18 +251,11 @@ export function buildTsgoCompiler(api: API, project: Project): TsgoCompiler {
       wrapType(checkerRaw.getTypeFromTypeNode(unwrapNode(node))),
     getDeclaredTypeOfSymbol: (s: any) =>
       wrapType(checkerRaw.getDeclaredTypeOfSymbol(unwrapSym(s))),
-    getTypeOfSymbol: (s: any) => {
-      // Signature parameters resolve through getParameterType: their symbols have
-      // no usable handle on recent tsgo builds, so getTypeOfSymbol would throw.
-      let param = s && s[PARAM];
-      if (param) return wrapType(checkerRaw.getParameterType(param.sig, param.index));
-      return wrapType(checkerRaw.getTypeOfSymbol(unwrapSym(s)));
-    },
+    getTypeOfSymbol: (s: any) =>
+      paramType(s) ?? wrapType(checkerRaw.getTypeOfSymbol(unwrapSym(s))),
     getTypeOfSymbolAtLocation: (s: any, node: any) => {
-      // Signature parameters resolve through getParameterType: their symbols have
-      // no usable handle on recent tsgo builds, so getTypeOfSymbol would throw.
-      let param = s && s[PARAM];
-      if (param) return wrapType(checkerRaw.getParameterType(param.sig, param.index));
+      let fromParam = paramType(s);
+      if (fromParam) return fromParam;
       let rawSym = unwrapSym(s);
       let raw = unwrapNode(node);
       // Fall back to the symbol's declared type (also our safety net if a

@@ -8,9 +8,8 @@
 // `typeof ts` surface and source files through this context, so the only tsgo-
 // specific work lives here and in tsgo-checker.ts.
 
-import { existsSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import type ts from "typescript";
+import { resolve } from "node:path";
+import ts from "typescript";
 
 import { API, type Project } from "typescript7/unstable/sync";
 import { computeLineStarts, skipTrivia } from "typescript7/unstable/ast";
@@ -22,11 +21,23 @@ import {
 } from "./context.js";
 import { buildTsgoCompiler, type TsgoCompiler } from "./tsgo-checker.js";
 
+// computeLineStarts is O(text). Diagnostics come in batches per file, so cache
+// the scan; without this a file with many findings is quadratic in its size.
+let lineStartsCache = new WeakMap<object, readonly number[]>();
+
+function getLineStarts(sourceFile: object, text: string): readonly number[] {
+  let cached = lineStartsCache.get(sourceFile);
+  if (!cached) {
+    cached = computeLineStarts(text);
+    lineStartsCache.set(sourceFile, cached);
+  }
+  return cached;
+}
+
 function lineAndCharacter(
-  text: string,
+  starts: readonly number[],
   pos: number,
 ): { line: number; character: number } {
-  let starts = computeLineStarts(text);
   let low = 0;
   let high = starts.length - 1;
   while (low < high) {
@@ -35,17 +46,6 @@ function lineAndCharacter(
     else high = mid - 1;
   }
   return { line: low, character: pos - starts[low]! };
-}
-
-function findTsconfig(start: string): string | undefined {
-  let dir = start;
-  for (;;) {
-    let candidate = join(dir, "tsconfig.json");
-    if (existsSync(candidate)) return candidate;
-    let parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
 }
 
 export function createTsgoTransformContext(
@@ -60,8 +60,8 @@ export function createTsgoTransformContext(
 
     let tsconfigPath = options.tsconfig
       ? resolve(cwd, options.tsconfig)
-      : findTsconfig(cwd);
-    if (!tsconfigPath || !existsSync(tsconfigPath)) {
+      : ts.findConfigFile(cwd, ts.sys.fileExists, "tsconfig.json");
+    if (!tsconfigPath || !ts.sys.fileExists(tsconfigPath)) {
       throw new Error(
         `capnweb-validate: tsconfig not found ` +
           `(${tsconfigPath ?? `tsconfig.json, cwd=${cwd}`}). ` +
@@ -125,7 +125,10 @@ export function createTsgoTransformContext(
     },
 
     getLineAndCharacter(sourceFile: ts.SourceFile, position: number) {
-      return lineAndCharacter((sourceFile as any).text, position);
+      return lineAndCharacter(
+        getLineStarts(sourceFile, (sourceFile as any).text),
+        position,
+      );
     },
 
     invalidateFile(): void {

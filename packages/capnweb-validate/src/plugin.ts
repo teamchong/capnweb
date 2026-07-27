@@ -14,7 +14,6 @@ import {
   type TransformContext,
   type TransformContextOptions,
 } from "./transform/context.js";
-import { createTsgoTransformContext } from "./transform/tsgo-context.js";
 import { transformModule } from "./transform/transform-module.js";
 
 export type CapnwebValidatePluginOptions = TransformContextOptions;
@@ -46,7 +45,7 @@ export const capnwebValidate = createUnplugin<
       return fileMatchesTransformFilters(cleanId, options);
     },
 
-    transform(code, id) {
+    async transform(code, id) {
       // Fast bail-out: only modules that mention the validation package can
       // need a rewrite.
       if (!code.includes("capnweb-validate") && !code.includes("capnweb")) {
@@ -58,11 +57,17 @@ export const capnwebValidate = createUnplugin<
       let cleanId = stripIdSuffix(id);
       if (!fileMatchesTransformFilters(cleanId, options)) return null;
 
-      if (!context)
+      if (!context) {
+        // tsgo lives behind an optional devDependency on an unstable nightly.
+        // Import it only when selected so the classic backend does not need it
+        // installed at all.
         context =
           options.backend === "tsgo"
-            ? createTsgoTransformContext(options)
+            ? (
+                await import("./transform/tsgo-context.js")
+              ).createTsgoTransformContext(options)
             : createTransformContext(options);
+      }
       let result = transformModule(context, cleanId, code);
       if (!result) return null;
       return { code: result.code };
