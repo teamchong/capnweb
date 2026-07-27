@@ -132,9 +132,6 @@ function createVirtualContext(
     getChecker() {
       return checker;
     },
-    getProgram() {
-      return program;
-    },
     getSourceFile(id) {
       return program.getSourceFile(id);
     },

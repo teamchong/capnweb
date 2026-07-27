@@ -119,8 +119,6 @@ export interface TransformContext {
   listSourceFiles(): Iterable<string>;
   /** The shared TypeScript checker. Lazily built on first call. */
   getChecker(): ts.TypeChecker;
-  /** The shared TypeScript program. Same lifecycle as the checker. */
-  getProgram(): ts.Program;
   /** Resolve a `ts.SourceFile` for the given absolute path, or undefined. */
   getSourceFile(id: string): ts.SourceFile | undefined;
   /** Source position helpers shared by classic and tsgo nodes. */
@@ -218,10 +216,6 @@ export function createTransformContext(
     getChecker(): ts.TypeChecker {
       ensureProgram();
       return checker!;
-    },
-
-    getProgram(): ts.Program {
-      return ensureProgram();
     },
 
     getSourceFile(id: string): ts.SourceFile | undefined {

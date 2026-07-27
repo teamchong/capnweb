@@ -106,14 +106,6 @@ export function createTsgoTransformContext(
       return ensure().checker as unknown as ts.TypeChecker;
     },
 
-    getProgram(): ts.Program {
-      // tsgo's Program exposes only getSourceFile; the transform never reads the
-      // rest. Surface a minimal compatible shape.
-      return {
-        getSourceFile: (id: string) => getSourceFile(id),
-      } as unknown as ts.Program;
-    },
-
     getSourceFile,
 
     getNodeStart(node: ts.Node, sourceFile: ts.SourceFile): number {
