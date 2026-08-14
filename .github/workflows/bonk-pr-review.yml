@@ -32,6 +32,21 @@ jobs:
           fetch-depth: 30
           persist-credentials: false
 
+      - name: Install Git guards
+        run: |
+          mkdir -p .git/hooks
+          cat << 'EOF' > .git/hooks/pre-commit
+          #!/bin/sh
+          echo "git commit is disabled. Do not commit changes; provide your findings in your review response." >&2
+          exit 1
+          EOF
+          cat << 'EOF' > .git/hooks/pre-push
+          #!/bin/sh
+          echo "git push is disabled. Do not attempt to push; complete your review response." >&2
+          exit 1
+          EOF
+          chmod +x .git/hooks/pre-commit .git/hooks/pre-push
+
       - name: Load review prompt
         id: prompt
         run: |
